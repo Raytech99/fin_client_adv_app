@@ -1,0 +1,9 @@
+alpaca-py
+supabase
+pandas
+numpy
+scipy
+joblib
+APScheduler
+pytz
+python-dotenv

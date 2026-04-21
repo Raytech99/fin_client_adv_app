@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+:root {
+  --bg:      #07080f;
+  --surface: #0f1120;
+  --border:  #1e2235;
+  --muted:   #3a3f58;
+  --text:    #e2e4f0;
+  --subtext: #7b82a0;
+  --green:   #22d87a;
+  --red:     #ff4d6a;
+  --yellow:  #f5c842;
+  --blue:    #4d9fff;
+  --purple:  #a78bfa;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
