@@ -3,8 +3,8 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import type { StrategySnapshot } from "@/lib/supabase";
-import { STRATEGY_META, STRATEGY_ORDER, STARTING_CAPITAL } from "@/lib/supabase";
+import type { StrategySnapshot } from "@/lib/strategies";
+import { STRATEGY_META, STRATEGY_ORDER, STARTING_CAPITAL } from "@/lib/strategies";
 
 type ChartRow = {
   date: string;

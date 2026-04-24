@@ -1,56 +1,17 @@
+// Server-only Supabase client and data queries.
+// Do NOT import from "use client" components — use lib/strategies.ts
+// for constants and types that need to cross the client boundary.
+
 import { createClient } from "@supabase/supabase-js";
+import type { StrategyName, StrategySnapshot, Trade } from "./strategies";
 
 const url = process.env.SUPABASE_URL!;
 const key = process.env.SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(url, key);
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-export type StrategyName = "vgt_real" | "manual" | "ml" | "momentum" | "pairs";
-
-export type Position = {
-  side: string;
-  shares?: number;
-  qty?: number;
-  entry_price?: number;
-  current_price?: number;
-  market_value?: number;
-  unrealized_pnl?: number;
-  unrealized_pl?: number;
-};
-
-export type StrategySnapshot = {
-  id: number;
-  date: string;
-  strategy: StrategyName;
-  total_value: number;
-  cash: number | null;
-  positions: Record<string, Position> | null;
-  signals: Record<string, unknown> | null;
-};
-
-export type Trade = {
-  id: number;
-  date: string;
-  symbol: string;
-  action: string;
-  shares: number;
-  dollar_amount: number;
-  price: number;
-  strategy: string;
-};
-
-export const STRATEGY_META: Record<StrategyName, { label: string; color: string; short: string }> = {
-  vgt_real: { label: "VGT (Real Money)",      color: "#a78bfa", short: "VGT" },
-  manual:   { label: "Manual Mean Reversion", color: "#22d87a", short: "Manual" },
-  ml:       { label: "ML Shadow",             color: "#4d9fff", short: "ML" },
-  momentum: { label: "Momentum",              color: "#ffa94d", short: "Momentum" },
-  pairs:    { label: "Pairs Trading",         color: "#ff6aa1", short: "Pairs" },
-};
-
-export const STRATEGY_ORDER: StrategyName[] = ["vgt_real", "manual", "ml", "momentum", "pairs"];
-export const STARTING_CAPITAL = 1700;
+export type { StrategyName, StrategySnapshot, Trade, Position } from "./strategies";
+export { STRATEGY_META, STRATEGY_ORDER, STARTING_CAPITAL } from "./strategies";
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
