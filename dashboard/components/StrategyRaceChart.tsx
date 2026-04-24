@@ -1,76 +1,96 @@
 "use client";
-import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from "recharts";
-import type { Signal, Snapshot } from "@/lib/supabase";
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, Legend,
+  ResponsiveContainer, ReferenceLine,
+} from "recharts";
+import type { StrategySnapshot } from "@/lib/supabase";
+import { STRATEGY_META, STRATEGY_ORDER, STARTING_CAPITAL } from "@/lib/supabase";
 
-type RacePoint = {
+type ChartRow = {
   date: string;
-  manual: number | null;
-  ml: number | null;
-  portfolio: number | null;
+  vgt_real?: number | null;
+  manual?: number | null;
+  ml?: number | null;
+  momentum?: number | null;
+  pairs?: number | null;
 };
 
-function buildRaceData(snapshots: Snapshot[], signals: Signal[]): RacePoint[] {
-  const STARTING = 1700;
-  const sigMap: Record<string, { manual: number; ml: number }> = {};
-  for (const s of signals) {
-    sigMap[s.date] = { manual: s.manual_signal, ml: s.ml_signal };
+function buildChartData(snapshots: StrategySnapshot[]): ChartRow[] {
+  const dates = [...new Set(snapshots.map(s => s.date))].sort();
+  const byDateStrategy: Record<string, Record<string, number>> = {};
+  for (const s of snapshots) {
+    byDateStrategy[s.date] ??= {};
+    byDateStrategy[s.date][s.strategy] = Number(s.total_value);
   }
-
-  const snapMap: Record<string, number> = {};
-  for (const s of snapshots) snapMap[s.date] = s.total_value;
-
-  let manualValue = STARTING;
-  let mlValue = STARTING;
-  let manualPos = 0;
-  let mlPos = 0;
-
-  const allDates = [...new Set([...Object.keys(sigMap), ...Object.keys(snapMap)])].sort();
-
-  return allDates.map(date => {
-    const sig = sigMap[date];
-    if (sig) {
-      if (sig.manual !== manualPos) manualPos = sig.manual;
-      if (sig.ml !== mlPos) mlPos = sig.ml;
-    }
-    return {
-      date,
-      manual: manualValue,
-      ml: mlValue,
-      portfolio: snapMap[date] ?? null,
-    };
-  });
+  return dates.map(d => ({
+    date: d,
+    vgt_real: byDateStrategy[d]?.vgt_real ?? null,
+    manual: byDateStrategy[d]?.manual ?? null,
+    ml: byDateStrategy[d]?.ml ?? null,
+    momentum: byDateStrategy[d]?.momentum ?? null,
+    pairs: byDateStrategy[d]?.pairs ?? null,
+  }));
 }
 
 function fmt(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function StrategyRaceChart({ snapshots, signals }: { snapshots: Snapshot[]; signals: Signal[] }) {
-  const data = buildRaceData(snapshots, signals);
+export function StrategyRaceChart({ snapshots }: { snapshots: StrategySnapshot[] }) {
+  const data = buildChartData(snapshots);
 
   if (data.length === 0) {
     return (
-      <div style={{ height: 260, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--subtext)" }}>
+      <div style={{
+        height: 320, display: "flex", alignItems: "center",
+        justifyContent: "center", color: "var(--subtext)",
+      }}>
         No data yet — check back after the first trading day.
       </div>
     );
   }
 
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-        <XAxis dataKey="date" tickFormatter={fmt} tick={{ fill: "var(--subtext)", fontSize: 11 }} axisLine={false} tickLine={false} />
-        <YAxis tickFormatter={v => `$${v.toFixed(0)}`} tick={{ fill: "var(--subtext)", fontSize: 11 }} axisLine={false} tickLine={false} width={60} />
-        <Tooltip
-          contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-          labelFormatter={(d: unknown) => fmt(String(d))}
-          formatter={(v: unknown) => `$${Number(v).toFixed(2)}`}
+    <ResponsiveContainer width="100%" height={320}>
+      <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+        <XAxis
+          dataKey="date"
+          tickFormatter={fmt}
+          tick={{ fill: "var(--subtext)", fontSize: 11 }}
+          axisLine={false} tickLine={false}
         />
-        <Legend wrapperStyle={{ fontSize: 12, color: "var(--subtext)" }} />
-        <ReferenceLine y={1700} stroke="var(--muted)" strokeDasharray="4 4" />
-        <Line type="monotone" dataKey="portfolio" name="Actual Portfolio" stroke="var(--purple)" strokeWidth={2} dot={false} connectNulls />
-        <Line type="monotone" dataKey="manual" name="Manual Strategy" stroke="var(--green)" strokeWidth={1.5} dot={false} strokeDasharray="5 3" connectNulls />
-        <Line type="monotone" dataKey="ml" name="ML Shadow" stroke="var(--blue)" strokeWidth={1.5} dot={false} strokeDasharray="5 3" connectNulls />
+        <YAxis
+          tickFormatter={(v: number) => `$${v.toFixed(0)}`}
+          tick={{ fill: "var(--subtext)", fontSize: 11 }}
+          axisLine={false} tickLine={false} width={60}
+        />
+        <Tooltip
+          contentStyle={{
+            background: "var(--surface)", border: "1px solid var(--border)",
+            borderRadius: 8, fontSize: 12,
+          }}
+          labelFormatter={(d: unknown) => fmt(String(d))}
+          formatter={(v: unknown, name: unknown) => [
+            `$${Number(v).toFixed(2)}`,
+            STRATEGY_META[name as keyof typeof STRATEGY_META]?.short ?? String(name),
+          ]}
+        />
+        <Legend
+          wrapperStyle={{ fontSize: 12, color: "var(--subtext)", paddingTop: 12 }}
+          formatter={(value) => STRATEGY_META[value as keyof typeof STRATEGY_META]?.short ?? String(value)}
+        />
+        <ReferenceLine y={STARTING_CAPITAL} stroke="var(--muted)" strokeDasharray="4 4" />
+        {STRATEGY_ORDER.map(key => (
+          <Line
+            key={key}
+            type="monotone"
+            dataKey={key}
+            stroke={STRATEGY_META[key].color}
+            strokeWidth={key === "vgt_real" ? 2.5 : 1.8}
+            dot={false}
+            connectNulls
+          />
+        ))}
       </LineChart>
     </ResponsiveContainer>
   );

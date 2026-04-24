@@ -7,14 +7,27 @@ export const supabase = createClient(url, key);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type Signal = {
+export type StrategyName = "vgt_real" | "manual" | "ml" | "momentum" | "pairs";
+
+export type Position = {
+  side: string;
+  shares?: number;
+  qty?: number;
+  entry_price?: number;
+  current_price?: number;
+  market_value?: number;
+  unrealized_pnl?: number;
+  unrealized_pl?: number;
+};
+
+export type StrategySnapshot = {
+  id: number;
   date: string;
-  symbol: string;
-  bb_pct_b: number;
-  momentum: number;
-  rsi: number;
-  manual_signal: number;
-  ml_signal: number;
+  strategy: StrategyName;
+  total_value: number;
+  cash: number | null;
+  positions: Record<string, Position> | null;
+  signals: Record<string, unknown> | null;
 };
 
 export type Trade = {
@@ -28,65 +41,50 @@ export type Trade = {
   strategy: string;
 };
 
-export type Snapshot = {
-  date: string;
-  total_value: number;
-  cash?: number;
-  positions?: Record<string, {
-    side: string;
-    qty: number;
-    market_value: number;
-    current_price: number;
-    unrealized_pl: number;
-  }>;
+export const STRATEGY_META: Record<StrategyName, { label: string; color: string; short: string }> = {
+  vgt_real: { label: "VGT (Real Money)",      color: "#a78bfa", short: "VGT" },
+  manual:   { label: "Manual Mean Reversion", color: "#22d87a", short: "Manual" },
+  ml:       { label: "ML Shadow",             color: "#4d9fff", short: "ML" },
+  momentum: { label: "Momentum",              color: "#ffa94d", short: "Momentum" },
+  pairs:    { label: "Pairs Trading",         color: "#ff6aa1", short: "Pairs" },
 };
+
+export const STRATEGY_ORDER: StrategyName[] = ["vgt_real", "manual", "ml", "momentum", "pairs"];
+export const STARTING_CAPITAL = 1700;
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-export async function getLatestSnapshot(): Promise<Snapshot | null> {
-  const { data } = await supabase
-    .from("portfolio_snapshots")
-    .select("*")
-    .order("date", { ascending: false })
-    .limit(1)
-    .single();
-  return data;
-}
-
-export async function getSnapshotHistory(): Promise<Snapshot[]> {
-  const { data } = await supabase
-    .from("portfolio_snapshots")
-    .select("date, total_value")
-    .order("date", { ascending: true });
-  return data ?? [];
-}
-
-export async function getLatestSignals(): Promise<Signal[]> {
+export async function getLatestSnapshots(): Promise<Record<StrategyName, StrategySnapshot | null>> {
   const latest = await supabase
-    .from("signals")
+    .from("strategy_snapshots")
     .select("date")
     .order("date", { ascending: false })
     .limit(1)
     .single();
 
-  if (!latest.data) return [];
+  const out: Record<string, StrategySnapshot | null> = {
+    vgt_real: null, manual: null, ml: null, momentum: null, pairs: null,
+  };
+  if (!latest.data) return out as Record<StrategyName, StrategySnapshot | null>;
 
   const { data } = await supabase
-    .from("signals")
+    .from("strategy_snapshots")
     .select("*")
     .eq("date", latest.data.date);
-  return data ?? [];
+
+  for (const row of data ?? []) out[row.strategy] = row as StrategySnapshot;
+  return out as Record<StrategyName, StrategySnapshot | null>;
 }
 
-export async function getSignalHistory(): Promise<Signal[]> {
+export async function getAllSnapshotHistory(): Promise<StrategySnapshot[]> {
   const { data } = await supabase
-    .from("signals")
-    .select("*")
+    .from("strategy_snapshots")
+    .select("date, strategy, total_value")
     .order("date", { ascending: true });
-  return data ?? [];
+  return (data ?? []) as StrategySnapshot[];
 }
 
-export async function getRecentTrades(limit = 50): Promise<Trade[]> {
+export async function getRecentTrades(limit = 100): Promise<Trade[]> {
   const { data } = await supabase
     .from("trades")
     .select("*")

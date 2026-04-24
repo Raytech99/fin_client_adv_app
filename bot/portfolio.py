@@ -1,25 +1,20 @@
 """
-Position sizing and portfolio state from Alpaca.
-Each symbol gets an equal share of total equity.
-Long  → dollar order (fractional shares supported).
-Short → whole shares only (Alpaca restriction).
+Real Alpaca portfolio: buy-and-hold VGT with $1,700.
+
+This is the only strategy that places actual orders. The 4 simulated
+strategies run in parallel in simulator.py with their own virtual cash.
 """
 import os
-import math
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import (
-    MarketOrderRequest,
-    ClosePositionRequest,
-)
+from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SYMBOLS = ["NVDA", "MSFT", "SPY"]
+REAL_SYMBOL = "VGT"
 STARTING_CAPITAL = 1700.0
-ALLOCATION_PER_STOCK = STARTING_CAPITAL / len(SYMBOLS)  # ~$567
 
 _trading_client: TradingClient | None = None
 
@@ -45,7 +40,6 @@ def get_account() -> dict:
 
 
 def get_positions() -> dict[str, dict]:
-    """Return {symbol: {side, qty, market_value, current_price}}."""
     positions = {}
     for p in _tc().get_all_positions():
         positions[p.symbol] = {
@@ -54,85 +48,43 @@ def get_positions() -> dict[str, dict]:
             "market_value": float(p.market_value),
             "current_price": float(p.current_price),
             "unrealized_pl": float(p.unrealized_pl),
+            "cost_basis": float(p.cost_basis),
         }
     return positions
 
 
-def get_virtual_equity(positions: dict) -> float:
+def ensure_vgt_initialized() -> dict | None:
     """
-    Virtual portfolio value = $1,700 starting capital + unrealized P&L
-    across our 3 managed positions. Ignores the $98k+ Alpaca paper cash
-    we never touch — keeps accounting comparable to a real $1,700 account.
+    If we don't already hold VGT, place a one-time $1,700 fractional buy.
+    Returns the order info if a buy was placed, None otherwise.
     """
-    unrealized = sum(
-        positions[s]["unrealized_pl"]
-        for s in SYMBOLS
-        if s in positions
-    )
-    return STARTING_CAPITAL + unrealized
-
-
-def current_signal_from_position(symbol: str, positions: dict) -> int:
-    """Infer current held signal from open position: +1, 0, or -1."""
-    if symbol not in positions:
-        return 0
-    side = positions[symbol]["side"]
-    return 1 if side == "long" else -1
-
-
-def place_order(
-    symbol: str,
-    target_signal: int,
-    current_signal: int,
-    current_price: float,
-) -> dict | None:
-    """
-    Reconcile current position with target signal.
-    Returns order info dict or None if no trade needed.
-    """
-    if target_signal == current_signal:
+    positions = get_positions()
+    if REAL_SYMBOL in positions:
         return None
 
-    allocation = ALLOCATION_PER_STOCK
+    req = MarketOrderRequest(
+        symbol=REAL_SYMBOL,
+        notional=round(STARTING_CAPITAL, 2),
+        side=OrderSide.BUY,
+        time_in_force=TimeInForce.DAY,
+    )
+    _tc().submit_order(req)
+    print(f"[portfolio] Initial ${STARTING_CAPITAL} VGT buy submitted.")
+    return {
+        "action": "buy",
+        "symbol": REAL_SYMBOL,
+        "dollar_amount": STARTING_CAPITAL,
+    }
 
-    # Close existing position first if we're flipping sides
-    if current_signal != 0:
-        _tc().close_position(symbol)
 
-    if target_signal == 0:
-        return {"action": "close", "symbol": symbol, "shares": 0, "dollar": 0}
-
-    if target_signal == 1:
-        req = MarketOrderRequest(
-            symbol=symbol,
-            notional=round(allocation, 2),
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.DAY,
-        )
-        _tc().submit_order(req)
-        return {
-            "action": "buy",
-            "symbol": symbol,
-            "shares": allocation / current_price,
-            "dollar": allocation,
-        }
-
-    if target_signal == -1:
-        whole_shares = math.floor(allocation / current_price)
-        if whole_shares < 1:
-            print(f"[portfolio] Insufficient allocation to short {symbol} "
-                  f"(need ≥${current_price:.2f}, have ${allocation:.2f})")
-            return None
-        req = MarketOrderRequest(
-            symbol=symbol,
-            qty=whole_shares,
-            side=OrderSide.SELL,
-            time_in_force=TimeInForce.DAY,
-        )
-        _tc().submit_order(req)
-        return {
-            "action": "short",
-            "symbol": symbol,
-            "shares": whole_shares,
-            "dollar": whole_shares * current_price,
-        }
+def get_vgt_virtual_equity() -> float:
+    """
+    VGT-denominated virtual portfolio value.
+    = cost basis + unrealized P&L on our VGT position.
+    If we have no position yet, return STARTING_CAPITAL.
+    """
+    positions = get_positions()
+    if REAL_SYMBOL not in positions:
+        return STARTING_CAPITAL
+    p = positions[REAL_SYMBOL]
+    return p["cost_basis"] + p["unrealized_pl"]

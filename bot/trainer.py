@@ -5,7 +5,7 @@ and retrains one BagLearner model per symbol.
 from bot.data_feed import fetch_closes
 from bot.strategy_learner import train
 
-SYMBOLS = ["NVDA", "MSFT", "SPY"]
+SYMBOLS = ["JPM", "KO", "XOM"]  # mean-reverting stocks for the ML model
 LOOKBACK_DAYS = 730  # ~2 years
 
 

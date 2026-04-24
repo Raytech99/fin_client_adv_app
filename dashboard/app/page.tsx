@@ -1,25 +1,24 @@
-import { getLatestSnapshot, getSnapshotHistory, getLatestSignals } from "@/lib/supabase";
+import {
+  getLatestSnapshots, getAllSnapshotHistory,
+  STRATEGY_META, STRATEGY_ORDER, STARTING_CAPITAL,
+  type Position,
+} from "@/lib/supabase";
 import { StatTile } from "@/components/StatTile";
 import { Card } from "@/components/Card";
-import { SignalBadge } from "@/components/SignalBadge";
-import { PortfolioChart } from "@/components/PortfolioChart";
+import { StrategyRaceChart } from "@/components/StrategyRaceChart";
 
-const STARTING = 1700;
-const SYMBOLS = ["NVDA", "MSFT", "SPY"];
-
-export const revalidate = 300; // refresh every 5 min
+export const revalidate = 300;
 
 export default async function OverviewPage() {
-  const [snapshot, history, signals] = await Promise.all([
-    getLatestSnapshot(),
-    getSnapshotHistory(),
-    getLatestSignals(),
+  const [latest, history] = await Promise.all([
+    getLatestSnapshots(),
+    getAllSnapshotHistory(),
   ]);
 
-  const equity = snapshot?.total_value ?? STARTING;
-  const totalReturnPct = ((equity - STARTING) / STARTING) * 100;
-  const returnColor = totalReturnPct >= 0 ? "var(--green)" : "var(--red)";
-  const sigMap = Object.fromEntries(signals.map(s => [s.symbol, s]));
+  const vgt = latest.vgt_real;
+  const vgtValue = vgt?.total_value ?? STARTING_CAPITAL;
+  const vgtPct = ((vgtValue - STARTING_CAPITAL) / STARTING_CAPITAL) * 100;
+  const returnColor = vgtPct >= 0 ? "var(--green)" : "var(--red)";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -27,97 +26,83 @@ export default async function OverviewPage() {
       {/* Top stat tiles */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16 }}>
         <StatTile
-          label="Portfolio Value"
-          value={`$${equity.toFixed(2)}`}
-          sub={`Started at $${STARTING.toLocaleString()}`}
+          label="Real Portfolio (VGT)"
+          value={`$${vgtValue.toFixed(2)}`}
+          sub={`Started at $${STARTING_CAPITAL.toLocaleString()}`}
         />
         <StatTile
           label="Total Return"
-          value={`${totalReturnPct >= 0 ? "+" : ""}${totalReturnPct.toFixed(2)}%`}
+          value={`${vgtPct >= 0 ? "+" : ""}${vgtPct.toFixed(2)}%`}
           accent={returnColor}
         />
         <StatTile
           label="P&L"
-          value={`${equity - STARTING >= 0 ? "+" : ""}$${(equity - STARTING).toFixed(2)}`}
+          value={`${vgtValue - STARTING_CAPITAL >= 0 ? "+" : ""}$${(vgtValue - STARTING_CAPITAL).toFixed(2)}`}
           accent={returnColor}
         />
         <StatTile
           label="Last Updated"
-          value={snapshot?.date ?? "—"}
-          sub="Market close signal"
+          value={vgt?.date ?? "—"}
+          sub="Daily 3:50 PM ET"
         />
       </div>
 
-      {/* Portfolio chart */}
-      <Card title="Portfolio Value (vs $1,700 baseline)">
-        <PortfolioChart data={history as any} />
+      {/* Strategy Race chart front and center */}
+      <Card title="Strategy Race — Virtual Portfolio Value (all start at $1,700)">
+        <StrategyRaceChart snapshots={history} />
       </Card>
 
-      {/* Current positions */}
-      <Card title="Current Positions">
-        {!snapshot?.positions || Object.keys(snapshot.positions).length === 0 ? (
-          <p style={{ color: "var(--subtext)" }}>No open positions yet.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ color: "var(--subtext)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                {["Symbol", "Side", "Qty", "Market Value", "Unrealized P&L"].map(h => (
-                  <th key={h} style={{ textAlign: "left", paddingBottom: 10, fontWeight: 600 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {SYMBOLS.filter(s => snapshot?.positions?.[s]?.qty).map(s => {
-                const p = snapshot!.positions![s];
-                const pl = p.unrealized_pl ?? 0;
+      {/* Strategy Scoreboard */}
+      <Card title="Today's Scoreboard">
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ color: "var(--subtext)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {["Strategy", "Value", "Return", "Cash", "Open Positions"].map(h => (
+                <th key={h} style={{ textAlign: "left", paddingBottom: 12, fontWeight: 600 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {STRATEGY_ORDER.map(key => {
+              const snap = latest[key];
+              if (!snap) {
                 return (
-                  <tr key={s} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ padding: "10px 0", fontWeight: 700 }}>{s}</td>
-                    <td style={{ color: p.side === "long" ? "var(--green)" : "var(--red)" }}>{p.side?.toUpperCase()}</td>
-                    <td>{Number(p.qty).toFixed(4)}</td>
-                    <td>${Number(p.market_value).toFixed(2)}</td>
-                    <td style={{ color: pl >= 0 ? "var(--green)" : "var(--red)" }}>
-                      {pl >= 0 ? "+" : ""}${pl.toFixed(2)}
+                  <tr key={key} style={{ borderTop: "1px solid var(--border)" }}>
+                    <td style={{ padding: "14px 0" }}>
+                      <span style={{ display: "inline-block", width: 10, height: 10, background: STRATEGY_META[key].color, borderRadius: 2, marginRight: 8 }} />
+                      {STRATEGY_META[key].label}
                     </td>
+                    <td colSpan={4} style={{ color: "var(--subtext)" }}>no data yet</td>
                   </tr>
                 );
-              })}
-            </tbody>
-          </table>
-        )}
-      </Card>
+              }
+              const val = Number(snap.total_value);
+              const pct = ((val - STARTING_CAPITAL) / STARTING_CAPITAL) * 100;
+              const color = pct >= 0 ? "var(--green)" : "var(--red)";
+              const positions = snap.positions ?? {};
+              const posStrs = Object.entries(positions)
+                .filter(([_, p]: [string, Position]) => p.shares || p.qty)
+                .map(([sym, p]: [string, Position]) => {
+                  const shares = Number(p.shares ?? p.qty ?? 0);
+                  return `${p.side?.toUpperCase()} ${sym} (${shares.toFixed(2)})`;
+                })
+                .join(" · ");
 
-      {/* Today's signals quick view */}
-      <Card title="Today's Signals">
-        {signals.length === 0 ? (
-          <p style={{ color: "var(--subtext)" }}>No signals logged yet.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ color: "var(--subtext)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                {["Symbol", "Manual Strategy", "ML (shadow)", "BB%B", "Momentum", "RSI"].map(h => (
-                  <th key={h} style={{ textAlign: "left", paddingBottom: 10, fontWeight: 600 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {SYMBOLS.map(s => {
-                const sig = sigMap[s];
-                if (!sig) return null;
-                return (
-                  <tr key={s} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ padding: "10px 0", fontWeight: 700 }}>{s}</td>
-                    <td><SignalBadge signal={sig.manual_signal} /></td>
-                    <td><SignalBadge signal={sig.ml_signal} /></td>
-                    <td style={{ color: "var(--subtext)" }}>{sig.bb_pct_b?.toFixed(4)}</td>
-                    <td style={{ color: "var(--subtext)" }}>{sig.momentum?.toFixed(4)}</td>
-                    <td style={{ color: "var(--subtext)" }}>{sig.rsi?.toFixed(2)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+              return (
+                <tr key={key} style={{ borderTop: "1px solid var(--border)" }}>
+                  <td style={{ padding: "14px 0" }}>
+                    <span style={{ display: "inline-block", width: 10, height: 10, background: STRATEGY_META[key].color, borderRadius: 2, marginRight: 8 }} />
+                    {STRATEGY_META[key].label}
+                  </td>
+                  <td style={{ fontFamily: "monospace" }}>${val.toFixed(2)}</td>
+                  <td style={{ color, fontWeight: 700 }}>{pct >= 0 ? "+" : ""}{pct.toFixed(2)}%</td>
+                  <td style={{ fontFamily: "monospace", color: "var(--subtext)" }}>${Number(snap.cash ?? 0).toFixed(2)}</td>
+                  <td style={{ fontSize: 12, color: "var(--subtext)" }}>{posStrs || "flat"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </Card>
     </div>
   );

@@ -1,13 +1,45 @@
-"""Supabase client and insert helpers."""
+"""Supabase client and insert helpers with retry on transient network errors."""
 import os
+import time
 from datetime import date
+from functools import wraps
 
+import httpx
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
 load_dotenv()
 
 _client: Client | None = None
+
+TRANSIENT_ERRORS = (
+    httpx.RemoteProtocolError,
+    httpx.ConnectError,
+    httpx.ReadTimeout,
+    httpx.ConnectTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+)
+
+
+def _with_retry(max_attempts: int = 4, backoff: float = 2.0):
+    """Retry on transient network errors with exponential backoff."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            delay = backoff
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except TRANSIENT_ERRORS as e:
+                    if attempt == max_attempts:
+                        raise
+                    print(f"[db] {fn.__name__} failed ({type(e).__name__}), "
+                          f"retry {attempt}/{max_attempts - 1} in {delay:.0f}s")
+                    time.sleep(delay)
+                    delay *= 2
+        return wrapper
+    return decorator
 
 
 def _db() -> Client:
@@ -20,6 +52,7 @@ def _db() -> Client:
     return _client
 
 
+@_with_retry()
 def upsert_signal(
     trade_date: date,
     symbol: str,
@@ -40,6 +73,7 @@ def upsert_signal(
     }, on_conflict="date,symbol").execute()
 
 
+@_with_retry()
 def insert_trade(
     trade_date: date,
     symbol: str,
@@ -60,6 +94,7 @@ def insert_trade(
     }).execute()
 
 
+@_with_retry()
 def upsert_snapshot(
     snap_date: date,
     total_value: float,
@@ -74,6 +109,7 @@ def upsert_snapshot(
     }, on_conflict="date").execute()
 
 
+@_with_retry()
 def upsert_performance(
     perf_date: date,
     symbol: str,
