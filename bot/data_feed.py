@@ -1,14 +1,49 @@
 """Fetch historical daily OHLCV from Alpaca and return closing price Series."""
 import os
+import time
 from datetime import date, timedelta
+from functools import wraps
 
 import pandas as pd
+import requests
+import urllib3
+import httpx
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from dotenv import load_dotenv
 
 load_dotenv()
+
+TRANSIENT_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    urllib3.exceptions.ProtocolError,
+    ConnectionError,
+    httpx.RemoteProtocolError,
+    httpx.ConnectError,
+    httpx.ReadTimeout,
+)
+
+
+def _with_retry(max_attempts: int = 4, backoff: float = 3.0):
+    """Retry on transient network errors with exponential backoff."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            delay = backoff
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return fn(*args, **kwargs)
+                except TRANSIENT_ERRORS as e:
+                    if attempt == max_attempts:
+                        raise
+                    print(f"[data_feed] {fn.__name__} failed ({type(e).__name__}), "
+                          f"retry {attempt}/{max_attempts - 1} in {delay:.0f}s")
+                    time.sleep(delay)
+                    delay *= 2
+        return wrapper
+    return decorator
 
 _client = None
 
@@ -23,6 +58,7 @@ def _get_client() -> StockHistoricalDataClient:
     return _client
 
 
+@_with_retry()
 def fetch_closes(symbol: str, lookback_days: int = 500) -> pd.Series:
     """Return a Series of adjusted closing prices indexed by date."""
     end = date.today()

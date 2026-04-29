@@ -55,11 +55,31 @@ def get_positions() -> dict[str, dict]:
 
 def ensure_vgt_initialized() -> dict | None:
     """
-    If we don't already hold VGT, place a one-time $1,700 fractional buy.
-    Returns the order info if a buy was placed, None otherwise.
+    Idempotent VGT initialization.
+
+    Skip if either:
+      - VGT is already in the Alpaca position list, OR
+      - The trades table already has a vgt_real buy logged
+        (covers the case where an order was placed but not yet filled).
     """
-    positions = get_positions()
-    if REAL_SYMBOL in positions:
+    if REAL_SYMBOL in get_positions():
+        return None
+
+    # Belt-and-suspenders: also check the trades table — if a prior run
+    # submitted a buy that hasn't filled yet, do NOT submit another.
+    from bot.db import _db
+    prior = (
+        _db()
+        .table("trades")
+        .select("id")
+        .eq("symbol", REAL_SYMBOL)
+        .eq("strategy", "vgt_real")
+        .eq("action", "buy")
+        .limit(1)
+        .execute()
+    )
+    if prior.data:
+        print(f"[portfolio] VGT buy already logged in trades table — skipping.")
         return None
 
     req = MarketOrderRequest(
